@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: portal
+      POSTGRES_DB: portal
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal -d portal"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      APP_ENV: development
+      PORT: "8000"
+      DATABASE_URL: postgres://portal:portal@db:5432/portal?sslmode=disable
+      JWT_SECRET: change-me-in-production
+      JWT_TTL_MINUTES: "60"
+      HISTORY_RETENTION_DAYS: "7"
+      MAX_UPLOAD_BYTES: "2097152"
+      UPLOAD_DIR: /data/uploads
+      CORS_ORIGINS: http://localhost:5173,http://localhost:8080
+      # The web container fronts the API, so the real client address only arrives
+      # in nginx's X-Real-IP / X-Forwarded-For headers.
+      TRUST_PROXY_HEADERS: "true"
+      # Demo accounts for the quick start. Forced off when APP_ENV=production.
+      SEED_DEMO_USERS: "true"
+    volumes:
+      - uploads:/data/uploads
+    # Deliberately not published to the host. TRUST_PROXY_HEADERS is on, so a client
+    # that could reach the API directly would be able to forge X-Real-IP and bypass
+    # the login rate limit entirely. Reach the API through the web service on :8080.
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  db-data:
+  uploads:
