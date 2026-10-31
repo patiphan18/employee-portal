@@ -76,7 +76,7 @@ The two roles have **disjoint** surfaces rather than one being a superset of the
 |---|---|---|
 | Route | `/` | `/admin` |
 | Own profile, avatar, contact, skills, history | yes | **no** — `/api/v1/me*` returns `403` |
-| Skill catalog: add, rename, recategorize, retire, restore | no | yes |
+| Skill catalog: add, rename, deactivate, reactivate | no | yes |
 | History retention window | sees it applied | sets it |
 
 An administrator is a configuration operator, not a member of staff: they have no
@@ -84,15 +84,9 @@ employee profile at all, and logging in as one returns `"profile": null`. Signin
 sends each role to its own home, and visiting the other role's route redirects rather
 than erroring.
 
-### Two features proposed on top of the brief
+### Additional feature
 
-1. ~~**Undo a change**~~ — withdrawn. The change history is a read-only audit trail:
-   an audit log you can also act on becomes a way to edit data around the normal
-   checks, so both the endpoint and the button were removed.
-2. **Profile completeness meter** — a 0–100 score with a checklist of what is still
-   missing, which gives the employee a reason to finish their profile.
-
-Both are described with their rationale in [the spec](docs/SOFTWARE_SPEC.md) (FR-6, FR-7).
+- **Profile completeness meter** — a 0–100 score with a checklist of missing profile details.
 
 ---
 
@@ -151,9 +145,11 @@ employee-portal/
 All backend settings come from the environment; see [.env.example](.env.example) and
 section 6 of the design doc. The ones worth knowing:
 
-- `HISTORY_RETENTION_DAYS` (default `7`) — the history window. An admin can override it
-  at runtime via `PUT /api/v1/admin/settings`. Employees cannot change it: there is no
-  request parameter for it. The effective value is always clamped to 1–365.
+- `HISTORY_RETENTION_DAYS` (default `7`) — fallback history window used only when the
+  database has no readable `history_retention_days` setting. A database setting takes
+  precedence; admins can save it via `PUT /api/v1/admin/settings`. The initial migration
+  seeds the database setting as `7`, so a fresh database uses that value before env.
+  Employees cannot change the window, and the effective value is clamped to 1–365.
 - `JWT_SECRET` — the server refuses to start with the built-in default when
   `APP_ENV=production`.
 - `TRUST_PROXY_HEADERS` (default `false`) — read the client address from `X-Real-IP` /
