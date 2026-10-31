@@ -32,7 +32,7 @@ func NewHistory(s store.Store, defaultDays int) *History {
 // SetClock replaces the time source. Tests use it to age events.
 func (h *History) SetClock(f func() time.Time) { h.now = f }
 
-// ResolveDays applies the precedence in FR-5.4: the settings table an administrator
+// ResolveDays applies the precedence in FR-5.3: the settings table an administrator
 // controls, then the env default, then 7 — clamped to [1, 365].
 //
 // Employees have no say in this. The window is a policy decision about how far back

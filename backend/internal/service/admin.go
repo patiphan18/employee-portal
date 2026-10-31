@@ -2,15 +2,23 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 
+	"github.com/digithun/employee-portal/backend/internal/auth"
 	"github.com/digithun/employee-portal/backend/internal/models"
 	"github.com/digithun/employee-portal/backend/internal/store"
 	"github.com/digithun/employee-portal/backend/internal/validate"
 )
 
-// Admin covers the configurable parts of the system: the skill catalog (FR-4.2) and
-// system settings (FR-5.4).
+var (
+	ErrSelfDelete     = errors.New("administrators cannot delete their own account")
+	ErrSelfRoleChange = errors.New("administrators cannot change their own role")
+)
+
+// Admin covers account management and configurable system features.
 type Admin struct {
 	store       store.Store
 	defaultDays int
@@ -18,6 +26,149 @@ type Admin struct {
 
 func NewAdmin(s store.Store, defaultDays int) *Admin {
 	return &Admin{store: s, defaultDays: defaultDays}
+}
+
+const AdminUserPageSize = 10
+
+type UserPage struct {
+	Users      []models.User `json:"users"`
+	Page       int           `json:"page"`
+	PerPage    int           `json:"per_page"`
+	Total      int           `json:"total"`
+	TotalPages int           `json:"total_pages"`
+}
+
+func (a *Admin) Users(ctx context.Context, page int) (*UserPage, error) {
+	if page < 1 {
+		page = 1
+	}
+	// Bound offset arithmetic even for malformed, extremely large query values.
+	if page > 100_000_000 {
+		page = 100_000_000
+	}
+	users, total, err := a.store.ListUsers(ctx, AdminUserPageSize, (page-1)*AdminUserPageSize)
+	if err != nil {
+		return nil, err
+	}
+	totalPages := (total + AdminUserPageSize - 1) / AdminUserPageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	return &UserPage{Users: users, Page: page, PerPage: AdminUserPageSize, Total: total, TotalPages: totalPages}, nil
+}
+
+type ManagedUserInput struct {
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Email     string `json:"email"`
+	Mobile    string `json:"mobile"`
+	Address   string `json:"address"`
+	Role      string `json:"role"`
+	Password  string `json:"password"`
+}
+
+func (a *Admin) CreateUser(ctx context.Context, in ManagedUserInput) (*models.User, error) {
+	u, errs := normalizeManagedUser(in)
+	if len(errs) > 0 {
+		return nil, &FieldErrors{Errors: errs}
+	}
+	if err := validateManagedPassword(in.Password, true); err != "" {
+		return nil, &FieldErrors{Errors: validate.Errors{"password": err}}
+	}
+	hash, err := auth.HashPassword(in.Password)
+	if err != nil {
+		return nil, err
+	}
+	u.PasswordHash = hash
+	if err := a.store.CreateManagedUser(ctx, &u); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (a *Admin) UpdateUser(ctx context.Context, id, actorID string, in ManagedUserInput) (*models.User, error) {
+	current, err := a.store.UserByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	u, errs := normalizeManagedUser(in)
+	if len(errs) > 0 {
+		return nil, &FieldErrors{Errors: errs}
+	}
+	if id == actorID && u.Role != current.Role {
+		return nil, ErrSelfRoleChange
+	}
+	u.ID = id
+	u.AvatarURL = current.AvatarURL
+	u.CreatedAt = current.CreatedAt
+	if in.Password != "" {
+		if msg := validateManagedPassword(in.Password, false); msg != "" {
+			return nil, &FieldErrors{Errors: validate.Errors{"password": msg}}
+		}
+		u.PasswordHash, err = auth.HashPassword(in.Password)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := a.store.UpdateManagedUser(ctx, &u); err != nil {
+		return nil, err
+	}
+	return a.store.UserByID(ctx, id)
+}
+
+func (a *Admin) DeleteUser(ctx context.Context, id, actorID string) error {
+	if id == actorID {
+		return ErrSelfDelete
+	}
+	return a.store.DeleteUser(ctx, id)
+}
+
+func normalizeManagedUser(in ManagedUserInput) (models.User, validate.Errors) {
+	errs := validate.Errors{}
+	u := models.User{FirstName: strings.TrimSpace(in.FirstName), LastName: strings.TrimSpace(in.LastName), Role: in.Role}
+	if u.FirstName == "" || utf8.RuneCountInString(u.FirstName) > 100 {
+		errs.Add("first_name", "must be between 1 and 100 characters")
+	}
+	if u.LastName == "" || utf8.RuneCountInString(u.LastName) > 100 {
+		errs.Add("last_name", "must be between 1 and 100 characters")
+	}
+	email, msg := validate.Email(in.Email)
+	u.Email = email
+	if msg != "" {
+		errs.Add("email", msg)
+	}
+	if u.Role != models.RoleEmployee && u.Role != models.RoleAdmin {
+		errs.Add("role", "must be employee or admin")
+	}
+	mobile, msg := validate.Mobile(in.Mobile)
+	if msg != "" {
+		errs.Add("mobile", msg)
+	} else if mobile != "" {
+		u.Mobile = &mobile
+	}
+	address, msg := validate.Address(in.Address)
+	if msg != "" {
+		errs.Add("address", msg)
+	} else if address != "" {
+		u.Address = &address
+	}
+	return u, errs
+}
+
+func validateManagedPassword(password string, required bool) string {
+	if password == "" && !required {
+		return ""
+	}
+	if strings.TrimSpace(password) == "" {
+		return "must not be blank"
+	}
+	if utf8.RuneCountInString(password) < 8 {
+		return "must be at least 8 characters"
+	}
+	if len(password) > 72 {
+		return "must be no more than 72 bytes"
+	}
+	return ""
 }
 
 // Catalog returns the skill list. Employees see only active entries.

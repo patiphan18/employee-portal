@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/digithun/employee-portal/backend/internal/auth"
 	"github.com/digithun/employee-portal/backend/internal/models"
+	"github.com/digithun/employee-portal/backend/internal/store"
 )
 
 type ctxKey string
@@ -33,7 +35,7 @@ func userID(r *http.Request) string {
 }
 
 // RequireAuth rejects requests without a valid bearer token (FR-1.4, FR-1.5).
-func RequireAuth(issuer *auth.Issuer) func(http.Handler) http.Handler {
+func RequireAuth(issuer *auth.Issuer, users store.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token, ok := auth.BearerToken(r.Header.Get("Authorization"))
@@ -44,6 +46,15 @@ func RequireAuth(issuer *auth.Issuer) func(http.Handler) http.Handler {
 			claims, err := issuer.Verify(token)
 			if err != nil {
 				writeError(w, http.StatusUnauthorized, "invalid or expired token")
+				return
+			}
+			current, err := users.UserByID(r.Context(), claims.Subject)
+			if errors.Is(err, store.ErrNotFound) || (err == nil && current.Role != claims.Role) {
+				writeError(w, http.StatusUnauthorized, "invalid or expired token")
+				return
+			}
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "could not verify account")
 				return
 			}
 			ctx := context.WithValue(r.Context(), claimsKey, claims)

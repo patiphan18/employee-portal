@@ -9,6 +9,7 @@ interface Props {
   children: ReactNode
   /** Rendered right-aligned at the foot of the dialog. */
   footer?: ReactNode
+  wide?: boolean
 }
 
 /**
@@ -18,7 +19,7 @@ interface Props {
  * sticky column, and a sticky element creates its own stacking context — a z-index
  * applied inside it cannot lift the dialog above the rest of the page.
  */
-export function Modal({ title, onClose, busy = false, children, footer }: Props) {
+export function Modal({ title, onClose, busy = false, children, footer, wide = false }: Props) {
   const titleId = useId()
 
   useEffect(() => {
@@ -40,7 +41,7 @@ export function Modal({ title, onClose, busy = false, children, footer }: Props)
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl sm:p-6"
+        className={`max-h-[calc(100dvh-2rem)] w-full overflow-y-auto ${wide ? 'max-w-xl' : 'max-w-sm'} rounded-2xl bg-white p-5 shadow-xl sm:p-6`}
       >
         <h2 id={titleId} className="text-base font-semibold text-slate-900">
           {title}

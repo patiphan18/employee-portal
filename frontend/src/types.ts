@@ -61,6 +61,7 @@ export type Role = 'employee' | 'admin'
 export interface LoginResponse {
   token: string
   expires_at: string
+  user_id?: string
   role: Role
   email: string
   /** Null for administrators, who have no employee profile. */
@@ -76,6 +77,37 @@ export interface TokenInfo {
 
 export interface SystemSettings {
   history_retention_days: number
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  first_name: string
+  last_name: string
+  mobile: string | null
+  address: string | null
+  avatar_url: string | null
+  role: Role
+  created_at: string
+  updated_at: string
+}
+
+export interface AdminUserInput {
+  first_name: string
+  last_name: string
+  email: string
+  mobile: string
+  address: string
+  role: Role
+  password: string
+}
+
+export interface AdminUserPage {
+  users: AdminUser[]
+  page: number
+  per_page: number
+  total: number
+  total_pages: number
 }
 
 /** Fields an admin may change on a catalog entry; omitted keys are left alone. */

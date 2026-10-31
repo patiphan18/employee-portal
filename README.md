@@ -28,7 +28,7 @@ Then open **http://localhost:8080**.
 > These accounts exist for local development only. They are never created when
 > `APP_ENV=production`, regardless of `SEED_DEMO_USERS`.
 
-The API applies its migrations and seeds the skill catalog and demo users on first start.
+The API applies its migrations and seeds the skill catalog and demo users on first start. Admins can add accounts from the Users page.
 
 ### Running without Docker
 
@@ -66,7 +66,7 @@ access would let a client forge `X-Real-IP` and bypass the login rate limit.
 | Change history, 7 days by default | `GET /api/v1/me/history`, paged at 5 per page with numbered page controls; the window is set by an admin, not chosen per user |
 | Responsive desktop / tablet / mobile | Mobile-first Tailwind: one column, `md:` two columns, `lg:` sidebar + content |
 | Basic authentication | bcrypt + JWT, per-IP login rate limit |
-| Separate admin console | `/admin` route, guarded both in the router and on the server |
+| Admin workspace | Left sidebar with Dashboard, Users, Skills, and History retention pages; `/api/v1/admin/*` routes are role-guarded on the server |
 
 ## Roles
 
@@ -76,6 +76,7 @@ The two roles have **disjoint** surfaces rather than one being a superset of the
 |---|---|---|
 | Route | `/` | `/admin` |
 | Own profile, avatar, contact, skills, history | yes | **no** — `/api/v1/me*` returns `403` |
+| User accounts: list, add, edit, delete | no | yes |
 | Skill catalog: add, rename, deactivate, reactivate | no | yes |
 | History retention window | sees it applied | sets it |
 
@@ -130,7 +131,7 @@ employee-portal/
 ├── frontend/src/
 │   ├── api/                  fetch client
 │   ├── auth/                 session context
-│   ├── components/           UI (employee + admin console)
+│   ├── components/           UI (employee + admin console, including user CRUD modals)
 │   ├── hooks/                server state
 │   ├── lib/                  formatting
 │   └── pages/                login, profile, admin

@@ -14,6 +14,7 @@ const TOKEN_KEY = 'employee-portal.token'
 
 interface AuthState {
   token: string | null
+  userID: string | null
   /** Null until the session has been identified. */
   role: Role | null
   email: string | null
@@ -47,6 +48,7 @@ function writeStoredToken(token: string | null) {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(readStoredToken)
+  const [userID, setUserID] = useState<string | null>(null)
   const [role, setRole] = useState<Role | null>(null)
   const [email, setEmail] = useState<string | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -54,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     setToken(null)
+    setUserID(null)
     setRole(null)
     setEmail(null)
     setProfile(null)
@@ -78,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .tokenInfo()
       .then(async (info) => {
         if (cancelled) return
+        setUserID(info.user_id)
         setRole(info.role)
         setEmail(info.email)
         // Only employees have a profile to load.
@@ -103,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const result = await api.login(loginEmail, password)
     writeStoredToken(result.token)
     setToken(result.token)
+    setUserID(result.user_id ?? null)
     setRole(result.role)
     setEmail(result.email)
     setProfile(result.profile)
@@ -110,8 +115,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AuthState>(
-    () => ({ token, role, email, profile, ready, login, logout, setProfile }),
-    [token, role, email, profile, ready, login, logout],
+    () => ({ token, userID, role, email, profile, ready, login, logout, setProfile }),
+    [token, userID, role, email, profile, ready, login, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

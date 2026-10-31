@@ -104,6 +104,123 @@ func (m *Memory) UserByEmail(_ context.Context, email string) (*models.User, err
 	return nil, ErrNotFound
 }
 
+func (m *Memory) ListUsers(_ context.Context, limit, offset int) ([]models.User, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	all := make([]models.User, 0, len(m.users))
+	for _, u := range m.users {
+		all = append(all, *u)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if !all[i].CreatedAt.Equal(all[j].CreatedAt) {
+			return all[i].CreatedAt.After(all[j].CreatedAt)
+		}
+		li := strings.ToLower(all[i].LastName + "\x00" + all[i].FirstName + "\x00" + all[i].Email)
+		lj := strings.ToLower(all[j].LastName + "\x00" + all[j].FirstName + "\x00" + all[j].Email)
+		if li == lj {
+			return all[i].ID < all[j].ID
+		}
+		return li < lj
+	})
+	total := len(all)
+	if offset >= total {
+		return []models.User{}, total, nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	all = all[offset:]
+	if limit > 0 && len(all) > limit {
+		all = all[:limit]
+	}
+	return all, total, nil
+}
+
+func (m *Memory) CreateManagedUser(_ context.Context, u *models.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, other := range m.users {
+		if strings.EqualFold(strings.TrimSpace(other.Email), u.Email) {
+			return ErrEmailTaken
+		}
+	}
+	if u.ID == "" {
+		u.ID = uuid.NewString()
+	}
+	now := time.Now()
+	u.CreatedAt, u.UpdatedAt = now, now
+	cp := *u
+	cp.Email = strings.ToLower(strings.TrimSpace(cp.Email))
+	m.users[cp.ID] = &cp
+	return nil
+}
+
+func (m *Memory) UpdateManagedUser(_ context.Context, u *models.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cur, ok := m.users[u.ID]
+	if !ok {
+		return ErrNotFound
+	}
+	for id, other := range m.users {
+		if id != u.ID && strings.EqualFold(strings.TrimSpace(other.Email), u.Email) {
+			return ErrEmailTaken
+		}
+	}
+	if cur.Role == models.RoleAdmin && u.Role != models.RoleAdmin {
+		admins := 0
+		for _, other := range m.users {
+			if other.Role == models.RoleAdmin {
+				admins++
+			}
+		}
+		if admins <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	cp := *u
+	if cp.PasswordHash == "" {
+		cp.PasswordHash = cur.PasswordHash
+	}
+	cp.Email = strings.ToLower(strings.TrimSpace(cp.Email))
+	cp.AvatarURL = cur.AvatarURL
+	cp.CreatedAt = cur.CreatedAt
+	cp.UpdatedAt = time.Now()
+	m.users[cp.ID] = &cp
+	return nil
+}
+
+func (m *Memory) DeleteUser(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if u.Role == models.RoleAdmin {
+		admins := 0
+		for _, other := range m.users {
+			if other.Role == models.RoleAdmin {
+				admins++
+			}
+		}
+		if admins <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	delete(m.users, id)
+	delete(m.userSkills, id)
+	delete(m.customs, id)
+	changes := m.changes[:0]
+	for _, c := range m.changes {
+		if c.UserID != id {
+			changes = append(changes, c)
+		}
+	}
+	m.changes = changes
+	return nil
+}
+
 func (m *Memory) UpdateUser(_ context.Context, u *models.User, changes []models.ProfileChange) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

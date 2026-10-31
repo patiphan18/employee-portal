@@ -4,6 +4,7 @@ interface Props {
   onChange: (page: number) => void
   /** Shown beside the controls when there is room. */
   totalLabel?: string
+  ariaLabel?: string
 }
 
 /** A gap in the number run, rendered as an ellipsis. */
@@ -42,14 +43,14 @@ export function pageSlots(page: number, totalPages: number): Slot[] {
   return slots
 }
 
-export function Pagination({ page, totalPages, onChange, totalLabel }: Props) {
+export function Pagination({ page, totalPages, onChange, totalLabel, ariaLabel = 'History pages' }: Props) {
   if (totalPages <= 1) return null
 
   const slots = pageSlots(page, totalPages)
 
   return (
     <nav
-      aria-label="History pages"
+      aria-label={ariaLabel}
       className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between"
     >
       <div className="flex items-center justify-center gap-1">

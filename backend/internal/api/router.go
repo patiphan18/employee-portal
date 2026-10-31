@@ -14,7 +14,7 @@ func (s *Server) Routes(corsOrigins []string, uploadDir string) http.Handler {
 	r.Use(Recoverer, RequestLogger)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   corsOrigins,
-		AllowedMethods:   []string{"GET", "POST", "PATCH", "PUT", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: false,
 		MaxAge:           300,
@@ -40,7 +40,7 @@ func (s *Server) Routes(corsOrigins []string, uploadDir string) http.Handler {
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(RequireAuth(s.Issuer))
+			r.Use(RequireAuth(s.Issuer, s.Store))
 
 			r.Get("/auth/me", s.handleTokenInfo)
 
@@ -59,6 +59,10 @@ func (s *Server) Routes(corsOrigins []string, uploadDir string) http.Handler {
 
 			r.Group(func(r chi.Router) {
 				r.Use(RequireAdmin)
+				r.Get("/admin/users", s.handleAdminListUsers)
+				r.Post("/admin/users", s.handleAdminCreateUser)
+				r.Patch("/admin/users/{id}", s.handleAdminUpdateUser)
+				r.Delete("/admin/users/{id}", s.handleAdminDeleteUser)
 				r.Get("/admin/skills", s.handleAdminListSkills)
 				r.Post("/admin/skills", s.handleAdminCreateSkill)
 				r.Patch("/admin/skills/{id}", s.handleAdminUpdateSkill)

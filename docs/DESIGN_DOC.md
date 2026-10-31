@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| เวอร์ชัน | 1.1 |
-| วันที่ | 30 ตุลาคม 2569 |
+| เวอร์ชัน | 1.2 |
+| วันที่ | 31 ตุลาคม 2569 |
 | เอกสารคู่กัน | [SOFTWARE_SPEC.md](SOFTWARE_SPEC.md) |
 
 ---
@@ -143,7 +143,7 @@ backend/
 ├── internal/
 │   ├── api/
 │   │   ├── router.go           route table และ role guards
-│   │   ├── handlers.go         auth, profile, history, skills, admin, health
+│   │   ├── handlers.go         auth, profile, history, users, skills, settings, health
 │   │   ├── middleware.go       auth, request log, recover, rate limit
 │   │   └── respond.go          JSON responses และ error mapping
 │   ├── auth/auth.go
@@ -156,7 +156,22 @@ backend/
 └── migrations/
 ```
 
-### 3.2 ลำดับการทำงานของคำขอ — `PATCH /api/v1/me/contact`
+### 3.2 การจัดการบัญชีโดยผู้ดูแล
+
+`GET /api/v1/admin/users?page=N` อ่านจำนวนทั้งหมดและดึงหน้าที่ร้องขอด้วย `LIMIT 10/OFFSET`;
+เรียงตาม `created_at DESC` เพื่อให้บัญชีใหม่อยู่หน้าแรก การสร้างและแก้บัญชีตรวจชื่อ อีเมล
+เบอร์มือถือ ที่อยู่ role และรหัสผ่านผ่านชั้น service ก่อน persist ด้วย parameterised SQL
+รหัสผ่านใหม่ถูก hash ด้วย bcrypt cost 12 และไม่ปรากฏใน response
+
+การลบผู้ใช้ทำใน transaction ของฐานข้อมูล โดย serialize การเปลี่ยน role/ลบบัญชีที่เป็น admin
+และนับจำนวน admin ก่อนดำเนินการ เพื่อป้องกันการลบหรือ demote admin คนสุดท้าย ความสัมพันธ์
+`user_skills`, `user_custom_skills` และ `profile_changes` ถูกลบด้วย foreign key cascade; handler
+ลบไฟล์ avatar จาก storage แบบ best-effort เพิ่มเติม การลบตัวเองถูกปฏิเสธที่ service
+
+Auth middleware โหลดผู้ใช้ตาม `sub` จากฐานข้อมูลในทุก authenticated request และปฏิเสธ token
+เมื่อไม่พบบัญชีหรือ role ปัจจุบันไม่ตรงกับ claim เพื่อเพิกถอน session หลังลบผู้ใช้หรือเปลี่ยน role
+
+### 3.3 ลำดับการทำงานของคำขอ — `PATCH /api/v1/me/contact`
 
 1. **Auth middleware** อ่าน `Authorization: Bearer` ตรวจลายเซ็น HS256 และ `exp`
    แล้วใส่ claims ลงใน request context หากไม่ผ่านจะคืน `401`
@@ -168,7 +183,7 @@ backend/
    ทำให้เป็นไปไม่ได้ที่โปรไฟล์จะเปลี่ยนโดยไม่มีแถวประวัติกำกับ
 5. **Handler** คืนโปรไฟล์ที่อัปเดตแล้วพร้อม `200`
 
-### 3.3 การตรวจจับการเปลี่ยนแปลงและการบันทึกประวัติ
+### 3.4 การตรวจจับการเปลี่ยนแปลงและการบันทึกประวัติ
 
 มีฟังก์ชันตัวช่วยเดียวที่ผลิตชุดการเปลี่ยนแปลง:
 
@@ -182,7 +197,7 @@ func diff(before, after *models.User) []Change
 ภายในทรานแซกชันเดียวกัน ส่วนทักษะใช้เส้นทางคู่ขนาน (`diffSkills`) ที่แปลง id เป็นชื่อที่เรียงแล้ว
 ก่อนเปรียบเทียบ ดังนั้นการสลับลำดับของชุดเดิมจะไม่สร้างรายการเปลี่ยนแปลง
 
-### 3.4 การคำนวณช่วงเวลาย้อนหลัง (FR-5.3)
+### 3.5 การคำนวณช่วงเวลาย้อนหลัง (FR-5.3)
 
 ```go
 func (h *History) ResolveDays(ctx context.Context) int
@@ -193,7 +208,7 @@ func (h *History) ResolveDays(ctx context.Context) int
 
 การจำกัดช่วงอยู่ในฟังก์ชันเดียว เพื่อให้การอ่านประวัติและการตรวจช่วงเวลาใช้กติกาเดียวกัน
 
-### 3.5 การแบ่งหน้าของประวัติ (FR-5.6)
+### 3.6 การแบ่งหน้าของประวัติ (FR-5.6)
 
 ```
 GET /me/history?page=P&per_page=S
@@ -212,7 +227,7 @@ GET /me/history?page=P&per_page=S
 > ถ้าในอนาคตประวัติโตมาก ควรเปลี่ยนไปใช้ keyset pagination (คิวรีจาก `changed_at` ของ
 > รายการสุดท้าย) ซึ่งเปลี่ยนเฉพาะชั้น store
 
-### 3.6 การอัปโหลดรูปโปรไฟล์
+### 3.7 การอัปโหลดรูปโปรไฟล์
 
 `http.MaxBytesReader` จำกัดขนาด body ไว้ที่ 2 MB ก่อนเริ่มแปลงข้อมูล จากนั้นนำ 512 ไบต์แรก
 ไปเข้า `http.DetectContentType` ชนิดใดที่อยู่นอกรายการอนุญาต JPEG/PNG/WebP จะได้ `422`
@@ -221,7 +236,7 @@ GET /me/history?page=P&per_page=S
 แถวประวัติยังเก็บ URL เดิมไว้เป็นบันทึกว่าโปรไฟล์เคยระบุอะไร ไม่ได้รับประกันว่าไฟล์ยังอยู่ ปัจจุบัน interface `Storage` มีการพัฒนาไว้หนึ่งแบบ
 (`LocalStorage`) หากจะเพิ่มแบบ S3 ก็ไม่ต้องแตะชั้น service เลย
 
-### 3.7 หมายเหตุด้านความปลอดภัย
+### 3.8 หมายเหตุด้านความปลอดภัย
 
 | ภัยคุกคาม | มาตรการรับมือ |
 |---|---|
@@ -260,8 +275,9 @@ frontend/src/
 │   └── Toast.tsx
 │   ├── Modal.tsx            หน้าต่างกลาง: portal, Escape, คลิกพื้นหลังเพื่อปิด
 │   ├── SkillCatalog.tsx     (ผู้ดูแล) ตารางคลังทักษะ แบ่งหน้า + modal เพิ่มทักษะ
-│   └── RetentionSetting.tsx (ผู้ดูแล) ตั้งจำนวนวันย้อนหลัง
-├── pages/LoginPage.tsx ProfilePage.tsx AdminPage.tsx
+│   ├── RetentionSetting.tsx (ผู้ดูแล) ตั้งจำนวนวันย้อนหลัง
+│   └── UserManagement.tsx      (ผู้ดูแล) ตารางผู้ใช้ 10 รายการต่อหน้าและ modals เพิ่ม/แก้/ลบ
+├── pages/LoginPage.tsx ProfilePage.tsx AdminPage.tsx (Dashboard, Users, Skills, Settings)
 └── lib/format.ts            เวลาแบบสัมพัทธ์, ป้ายชื่อฟิลด์, การแสดงค่า
 ```
 
@@ -288,7 +304,7 @@ frontend/src/
 `ContactForm` เก็บค่าร่างของ mobile, email และ address ในฟอร์มเดียว แล้วส่งทั้งสามค่าเมื่อกดบันทึก
 ส่วน API รองรับ patch เฉพาะฟิลด์ และฟิลด์ที่ไม่ได้ส่งมาจะไม่เปลี่ยนแปลง (FR-3.3.1).
 
-หลังการแก้ไขสำเร็จ hook ทั้งสองตัวจะดึงข้อมูลใหม่ ประวัติจึงสะท้อนการแก้ไขนั้นทันที
+หลังการแก้ไขสำเร็จ hook จะดึงข้อมูลใหม่ ประวัติจึงสะท้อนการแก้ไขนั้นทันที
 
 ### 4.3 หน้าจอแบบ Responsive (FR-8)
 

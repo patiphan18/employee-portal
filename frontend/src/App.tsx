@@ -57,7 +57,7 @@ export function App() {
         }
       />
       <Route
-        path="/admin"
+        path="/admin/*"
         element={
           <RequireRole allow="admin">
             <AdminPage />

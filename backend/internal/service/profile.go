@@ -83,7 +83,7 @@ func buildProfile(u *models.User, skills []models.Skill, custom []string) *model
 	}
 }
 
-// Completeness scores the profile out of 100 (FR-7.2).
+// Completeness scores the profile out of 100 (FR-6.2).
 func Completeness(u *models.User, skills []models.Skill, custom []string) models.Completeness {
 	type item struct {
 		label  string

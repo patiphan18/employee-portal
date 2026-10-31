@@ -1,5 +1,8 @@
 import type {
   ApiErrorBody,
+  AdminUser,
+  AdminUserInput,
+  AdminUserPage,
   HistoryResponse,
   LoginResponse,
   Profile,
@@ -112,6 +115,17 @@ export const api = {
   tokenInfo: () => request<TokenInfo>('/auth/me'),
 
   admin: {
+    users: (page = 1) => request<AdminUserPage>(`/admin/users?page=${page}`),
+
+    createUser: (input: AdminUserInput) =>
+      request<AdminUser>('/admin/users', { method: 'POST', body: JSON.stringify(input) }),
+
+    updateUser: (id: string, input: AdminUserInput) =>
+      request<AdminUser>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
+
+    deleteUser: (id: string) =>
+      request<void>(`/admin/users/${id}`, { method: 'DELETE' }),
+
     /** The full catalog, including entries that have been retired. */
     skills: () => request<{ skills: Skill[] }>('/admin/skills').then((r) => r.skills),
 

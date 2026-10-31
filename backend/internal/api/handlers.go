@@ -38,6 +38,7 @@ type loginRequest struct {
 type loginResponse struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
+	UserID    string    `json:"user_id"`
 	Role      string    `json:"role"`
 	Email     string    `json:"email"`
 	// Profile is null for administrators, who have no employee profile (FR-2.4).
@@ -66,7 +67,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not issue token")
 		return
 	}
-	resp := loginResponse{Token: token, ExpiresAt: exp, Role: u.Role, Email: u.Email}
+	resp := loginResponse{Token: token, ExpiresAt: exp, UserID: u.ID, Role: u.Role, Email: u.Email}
 	if u.Role != models.RoleAdmin {
 		profile, err := s.Profile.Get(r.Context(), u.ID)
 		if err != nil {
@@ -266,6 +267,71 @@ func (s *Server) handleAdminUpdateSkill(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, skill)
 }
 
+// ---------- user management ----------
+
+func (s *Server) handleAdminListUsers(w http.ResponseWriter, r *http.Request) {
+	page, ok := intParam(r, "page")
+	if !ok {
+		writeFieldErrors(w, map[string]string{"page": "must be a number"})
+		return
+	}
+	pageNumber := 1
+	if page != nil {
+		pageNumber = *page
+	}
+	result, err := s.Admin.Users(r.Context(), pageNumber)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleAdminCreateUser(w http.ResponseWriter, r *http.Request) {
+	var in service.ManagedUserInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	u, err := s.Admin.CreateUser(r.Context(), in)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, u)
+}
+
+func (s *Server) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request) {
+	var in service.ManagedUserInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	u, err := s.Admin.UpdateUser(r.Context(), chi.URLParam(r, "id"), userID(r), in)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, u)
+}
+
+func (s *Server) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	user, err := s.Store.UserByID(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.Admin.DeleteUser(r.Context(), id, userID(r)); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if user.AvatarURL != nil && *user.AvatarURL != "" && s.Storage != nil {
+		_ = s.Storage.Remove(*user.AvatarURL)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ---------- settings ----------
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -309,6 +375,8 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "email already in use")
 	case errors.Is(err, store.ErrConflict):
 		writeError(w, http.StatusConflict, "already exists")
+	case errors.Is(err, store.ErrLastAdmin), errors.Is(err, service.ErrSelfDelete), errors.Is(err, service.ErrSelfRoleChange):
+		writeError(w, http.StatusConflict, err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "internal server error")
 	}

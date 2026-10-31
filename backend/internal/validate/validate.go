@@ -100,8 +100,8 @@ const MaxSkillNameLen = 60
 // employee's own free-text skill (FR-3.10) alike.
 //
 // Commas are rejected on purpose: the audit log stores a skill selection as a
-// comma-joined list of names, so a name containing a comma would be split back into
-// the wrong skills when the change is undone.
+// comma-joined list of names, so a name containing a comma would make history values
+// ambiguous when displaying the previous and current selections.
 func SkillName(s string) (string, string) {
 	s = strings.TrimSpace(s)
 	if s == "" {

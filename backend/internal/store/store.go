@@ -15,6 +15,7 @@ var (
 	ErrNotFound   = errors.New("not found")
 	ErrEmailTaken = errors.New("email already in use")
 	ErrConflict   = errors.New("conflict")
+	ErrLastAdmin  = errors.New("cannot remove the last administrator")
 )
 
 // Store is the full persistence surface of the application.
@@ -23,6 +24,10 @@ type Store interface {
 
 	UserByID(ctx context.Context, id string) (*models.User, error)
 	UserByEmail(ctx context.Context, email string) (*models.User, error)
+	ListUsers(ctx context.Context, limit, offset int) ([]models.User, int, error)
+	CreateManagedUser(ctx context.Context, u *models.User) error
+	UpdateManagedUser(ctx context.Context, u *models.User) error
+	DeleteUser(ctx context.Context, id string) error
 	// UpdateUser persists the mutable user columns and the accompanying audit rows in
 	// one transaction, so a profile can never move without its history (D4).
 	UpdateUser(ctx context.Context, u *models.User, changes []models.ProfileChange) error

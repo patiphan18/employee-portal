@@ -17,8 +17,8 @@ const (
 	FieldSkills  = "skills"
 )
 
-// User is the employee record. FirstName and LastName are owned by HR and are never
-// written by the portal (FR-3.1).
+// User is a portal account. Employees cannot edit FirstName or LastName through the
+// self-service API (FR-3.1); administrator account management can maintain them.
 type User struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`
@@ -77,7 +77,7 @@ type Profile struct {
 	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
-// Completeness drives the progress meter (FR-7).
+// Completeness drives the progress meter (FR-6).
 type Completeness struct {
 	Percent int      `json:"percent"`
 	Missing []string `json:"missing"`

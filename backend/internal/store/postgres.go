@@ -81,6 +81,126 @@ func (p *Postgres) UserByEmail(ctx context.Context, email string) (*models.User,
 		strings.TrimSpace(email)))
 }
 
+// ListUsers returns a stable, paginated view of accounts for the admin console.
+func (p *Postgres) ListUsers(ctx context.Context, limit, offset int) ([]models.User, int, error) {
+	var total int
+	if err := p.db.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= total {
+		return []models.User{}, total, nil
+	}
+	rows, err := p.db.QueryContext(ctx, `SELECT `+userColumns+` FROM users
+		ORDER BY created_at DESC, lower(last_name), lower(first_name), lower(email), id LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	users := make([]models.User, 0)
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		users = append(users, *u)
+	}
+	return users, total, rows.Err()
+}
+
+func (p *Postgres) CreateManagedUser(ctx context.Context, u *models.User) error {
+	err := p.db.QueryRowContext(ctx, `INSERT INTO users
+		(email, password_hash, first_name, last_name, mobile, address, role)
+		VALUES (lower($1), $2, $3, $4, $5, $6, $7)
+		RETURNING id, created_at, updated_at`,
+		u.Email, u.PasswordHash, u.FirstName, u.LastName, u.Mobile, u.Address, u.Role,
+	).Scan(&u.ID, &u.CreatedAt, &u.UpdatedAt)
+	if isUniqueViolation(err, "users_email_key") {
+		return ErrEmailTaken
+	}
+	return err
+}
+
+// UpdateManagedUser serializes role changes so concurrent requests cannot remove the
+// final administrator. The lock is held only for this short account mutation.
+func (p *Postgres) UpdateManagedUser(ctx context.Context, u *models.User) error {
+	err := p.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+			return err
+		}
+		var currentRole string
+		if err := tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id = $1 FOR UPDATE`, u.ID).Scan(&currentRole); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if currentRole == models.RoleAdmin && u.Role != models.RoleAdmin {
+			var admins int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE role = $1`, models.RoleAdmin).Scan(&admins); err != nil {
+				return err
+			}
+			if admins <= 1 {
+				return ErrLastAdmin
+			}
+		}
+		var result sql.Result
+		var err error
+		if u.PasswordHash == "" {
+			result, err = tx.ExecContext(ctx, `UPDATE users SET email = lower($2), first_name = $3,
+				last_name = $4, mobile = $5, address = $6, role = $7, updated_at = now() WHERE id = $1`,
+				u.ID, u.Email, u.FirstName, u.LastName, u.Mobile, u.Address, u.Role)
+		} else {
+			result, err = tx.ExecContext(ctx, `UPDATE users SET email = lower($2), first_name = $3,
+				last_name = $4, mobile = $5, address = $6, role = $7, password_hash = $8,
+				updated_at = now() WHERE id = $1`,
+				u.ID, u.Email, u.FirstName, u.LastName, u.Mobile, u.Address, u.Role, u.PasswordHash)
+		}
+		if err != nil {
+			if isUniqueViolation(err, "users_email_key") {
+				return ErrEmailTaken
+			}
+			return err
+		}
+		if n, _ := result.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+	return err
+}
+
+func (p *Postgres) DeleteUser(ctx context.Context, id string) error {
+	if _, err := uuid.Parse(id); err != nil {
+		return ErrNotFound
+	}
+	return p.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+			return err
+		}
+		var role string
+		if err := tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id = $1 FOR UPDATE`, id).Scan(&role); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if role == models.RoleAdmin {
+			var admins int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE role = $1`, models.RoleAdmin).Scan(&admins); err != nil {
+				return err
+			}
+			if admins <= 1 {
+				return ErrLastAdmin
+			}
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, id)
+		return err
+	})
+}
+
 func (p *Postgres) UpdateUser(ctx context.Context, u *models.User, changes []models.ProfileChange) error {
 	return p.inTx(ctx, func(tx *sql.Tx) error {
 		// first_name and last_name are intentionally absent: HR owns them (FR-3.1).
